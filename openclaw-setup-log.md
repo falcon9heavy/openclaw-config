@@ -50,6 +50,12 @@
 - [x] Started sshd: `sudo systemctl start sshd`
 - [x] Confirmed SSH connection from Windows PC
 
+- [x] Set up MobaXterm saved session ("Claw Mini-PC") with SSH key auth
+- [x] Set up local port forwarding tunnel (18789 → localhost:18789) in MobaXterm
+- [x] Confirmed OpenClaw gateway is running — dashboard accessible at http://localhost:18789
+- [x] Created openclaw-config git repo at C:\Tools\openclaw-config
+- [x] Pushed initial setup log to GitHub (falcon9heavy/openclaw-config)
+
 ### Still TODO
 - [ ] Set static IP (192.168.86.38) via netplan
 - [ ] Set BIOS to auto power-on after AC power loss
@@ -57,9 +63,7 @@
 - [ ] Disable password authentication in sshd_config
 - [ ] Disable root login in sshd_config
 - [ ] Create dedicated openclaw user
-- [ ] Verify OpenClaw gateway is running and auto-starts on boot
+- [ ] Verify OpenClaw gateway auto-starts on boot
 - [ ] Connect Telegram bot
 - [ ] Test chat through OpenClaw
-- [ ] Set up MobaXterm saved session with new IP + tunnel
-- [ ] Created openclaw-config git repo (C:\Tools\openclaw-config on Windows PC)
 - [ ] Consider UPS for power outage protection
