@@ -1,0 +1,149 @@
+# OpenClaw Mini-PC ("Orion") — Project Reference
+
+## Current State (as of April 27, 2026)
+
+**Higgens is LIVE on Telegram (`@MaresiasWaveBot`).** Two critical reliability fixes applied tonight on top of the original rebuild.
+
+### System reference
+- Hostname: `orion` | User: `chrisa` | Static IP: `192.168.86.36` | Interface: `enp2s0`
+- SSH key: `C:\Users\chris\.ssh\id_ed25519` | MobaXterm portable: `C:\Tools\MobaXterm`
+- Windows backup: `C:\minipc-backup\` | GitHub: `github.com/falcon9heavy/openclaw-config`
+- Telegram bot: `@MaresiasWaveBot` | OpenClaw dashboard port: `18789` (via SSH tunnel)
+- Browser control port: `18791` (auth=token, internal)
+- Uptime as of 4/27 session: 17 days continuous (no reboots since rebuild night)
+
+---
+
+## Standing Directive: Zero-Physical-Access Deployment
+
+**Never suggest plugging in a monitor, keyboard, or mouse.** SSH is the only access method. If SSH is lost, the unit is bricked. Every configuration decision must prioritize SSH reliability above all else. Wired ethernet only — WiFi permanently disabled. Claude owns the configuration criteria and must proactively harden for 100% remote reliability, building in preconditions and fallbacks before every risky operation.
+
+---
+
+## Rebuild History — Phases Complete
+
+### Phase 1: SSH Hardening ✅
+- Fresh Ubuntu Server 24.04 LTS install
+- SSH key auth established
+- Password auth disabled, root login disabled
+
+### Phase 2: Network ✅
+- `systemd-networkd` active (no NetworkManager)
+- Netplan permissions fixed (`chmod 600`)
+- WiFi permanently disabled (`wlp1s0` down, `iwlwifi` blacklisted via `/etc/modprobe.d/disable-wifi.conf`)
+- Static IP `192.168.86.36` on `enp2s0`
+
+### Phase 3: Security & Stability ✅
+- UFW enabled (default deny in, port 22/tcp only)
+- fail2ban active
+- unattended-upgrades enabled
+- All sleep/suspend/hibernate targets masked via systemd
+
+### Phase 4: OpenClaw Install ✅
+- Node 22 via NodeSource (Ubuntu apt only ships Node 18, too old)
+- OpenClaw v2026.4.8 installed (`sudo npm install -g openclaw`)
+- Backup restored from `C:\minipc-backup\openclaw-backup\` via SCP to `~/.openclaw/`
+- Workspace path corrected: `/home/user/` → `/home/chrisa/` via `sed`
+- API key set via `openclaw configure --section model` (interactive wizard)
+- Model: `claude-haiku-4-5-20251001`
+- Heartbeat: disabled (`0m`)
+- Gateway running as systemd user service
+
+---
+
+## April 27, 2026 Session — Two Critical Fixes
+
+### Fix 1: Linger enabled (THE Higgens-killer)
+
+**Symptom:** Higgens stopped replying. Last successful interaction was end of April 9 session.
+
+**Root cause:** `loginctl show-user chrisa | grep Linger` returned `Linger=no`. Without linger, the user's systemd instance only runs while a login session is active. When Chris logged out April 9, the gateway died with the session and stayed dead for 17 days. The "enabled" flag on the gateway service auto-starts it *with a user session*, not at boot — so SSH'ing in (April 27) brought Higgens back to life with timestamps showing the gateway started the moment SSH connected.
+
+**Fix:**
+```bash
+sudo loginctl enable-linger chrisa
+```
+
+**Verification:** `Linger=yes`. Gateway will now run 24/7 independent of SSH sessions and auto-start at boot.
+
+**Lesson learned (added to standing principles):** Systemd user services without linger are a trap on headless boxes. Should have been enabled during Phase 4. **Any future systemd user service deployment must verify linger is on as a precondition.**
+
+### Fix 2: Network watchdog deployed
+
+**Purpose:** Self-heal from network failures. If Orion can't reach the router for 5 consecutive minutes, reboot. Covers: router reboots, switch glitches, ethernet driver hangs, stuck DHCP leases.
+
+**Files installed:**
+- `/usr/local/bin/network-watchdog.sh` — pings `192.168.86.1`, tracks consecutive failures in `/var/run/network-watchdog.count`, reboots at 5 failures, logs to `/var/log/network-watchdog.log` (failures only)
+- `/etc/systemd/system/network-watchdog.service` — `Type=oneshot` runs the script
+- `/etc/systemd/system/network-watchdog.timer` — `OnBootSec=2min`, `OnUnitActiveSec=1min` (2-minute grace after boot, then every 60s)
+
+**Verified working:** Timer is `active (waiting)`, firing every 60s. Counter is `0`. Log file empty (only failures get logged, so empty = healthy).
+
+**What the watchdog does NOT cover:**
+- Gateway/Higgens crashing while network is fine (needs service-level watchdog — future phase)
+- Whole-house power loss (needs BIOS auto-power-on — Phase 5 pending)
+- Network "looks up but isn't really" failure modes (rare, would need traffic-based check)
+
+---
+
+## Phase 5 Remaining Work
+
+- **Router DHCP reservation** for `192.168.86.36` — done from router admin page (Chris does solo)
+- **BIOS auto power-on after AC loss** — SOAYAN MN-N1 supports it; requires reboot to enter BIOS. Risky tonight given 34 pending apt updates incl kernel. Needs dedicated session.
+- **Reboot survival test** — after BIOS work, confirm SSH + gateway + Higgens all recover cleanly
+- **Service-level watchdog for the gateway** — covers the case where Higgens crashes but network is fine
+
+---
+
+## Investment Agent System (post-infrastructure)
+
+- Requirements interview reached Q4; Q5+ remaining (new position discovery, drop reactions, weekly rhythms)
+- Portfolio engine skill already built (`holdings.json`, `portfolio_engine.py`, `SKILL.md`) and previously deployed to `~/.openclaw/workspace/skills/portfolio-engine/` — **verify it survived the reinstall**
+- Living requirements doc: `investment-agent-requirements.md` in GitHub repo
+
+Four planned agent roles:
+- **Portfolio Agent** — holdings/prices source of truth
+- **Watchdog Agent** — event monitoring
+- **Analyst Agent** — ticker research
+- **Strategist Agent** — portfolio-level allocation thinking
+
+Investment style: conviction-based, concentrated positions.
+
+---
+
+## Key Learnings & Principles
+
+1. **Linger must be enabled for any systemd user service on headless boxes.** Without it, services die on logout and stay dead.
+2. **`openclaw config set` does not accept `apiKey`** — always use `openclaw configure --section model` (interactive wizard) for API key entry.
+3. **Heartbeat default is dangerous**: OpenClaw's heartbeat fires every 30 minutes using primary model by default — silently burns API credits. Always set `agents.defaults.heartbeat.every` to `"0m"` immediately after install.
+4. **`openclaw config set` requires exact key paths** — no schema discovery via CLI; check docs immediately rather than guessing.
+5. **`openclaw doctor`** migrates legacy config, tightens permissions, removes unrecognized keys — run after any config surgery.
+6. **JSON corruption recovery**: `cat > ~/.openclaw/openclaw.json << 'EOF'` to overwrite cleanly, validate with `python3 -c "import json; json.load(open('~/.openclaw/openclaw.json')); print('Valid JSON')"`.
+7. **IP assignment**: Always verify an IP is free via ARP check before assigning.
+8. **MobaXterm path format**: Requires Unix-style paths (e.g., `/drives/c/Users/chris/.ssh/id_ed25519`).
+9. **MobaXterm port conflicts**: Port 18789 may be held by MoTTY.exe — close MobaXterm sessions or use alternate local port (e.g., 18790).
+10. **Workspace path after reinstall**: Username changed from `user` → `chrisa`; any restored configs referencing `/home/user/` must be updated.
+11. **Telegram/clipboard auto-linkifying**: Filenames like `network-watchdog.sh` get wrapped in `[name](http://name)` in pastes. Bash usually parses through it, but if a paste fails with a syntax error, that's the first place to look.
+12. **34 pending apt updates including kernel** as of 4/27 — reboot deferred; do alongside BIOS session.
+
+---
+
+## Approach & Patterns
+
+- ~30-minute focused daily sessions
+- Infrastructure stability before feature work
+- Explicit verification steps between actions
+- Direct execution-focused guidance preferred
+- Session logs and requirements docs committed to GitHub
+- Voice-to-text input across Windows PC and Android
+- Persistent project state in OpenClaw project file
+
+---
+
+## Tools & Resources
+
+- **OpenClaw** v2026.4.8 — Node 22 via NodeSource, npm global install
+- **MobaXterm** portable — `C:\Tools\MobaXterm`; SSH + local port forwarding for dashboard
+- **GitHub repo** — `github.com/falcon9heavy/openclaw-config` (cloned: `C:\Tools\openclaw-config`)
+- **yfinance** — portfolio data source
+- **Rufus portable** — for flashing Ubuntu Server ISO
